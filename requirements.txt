@@ -12,3 +12,4 @@ typesense
 langchain_openai
 langgraph
 langchain_text_splitters
+langchain_community

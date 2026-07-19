@@ -10,3 +10,6 @@ wheels/
 .venv
 .env
 data/vector_store/
+/faiss_store
+/data
+/.venv
