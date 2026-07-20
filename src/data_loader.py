@@ -10,7 +10,6 @@ def load_all_documents(data_dir: str) -> List[Any]:
     Load all supported files from the data directory and convert to LangChain document structure.
     Supported: PDF, TXT, CSV, Excel, Word, JSON
     """
-    # Use project root data folder
     data_path = Path(data_dir).resolve()
     print(f"[DEBUG] Data path: {data_path}")
     documents = []
@@ -23,19 +22,28 @@ def load_all_documents(data_dir: str) -> List[Any]:
         try:
             loader = PyPDFLoader(str(pdf_file))
             loaded = loader.load()
+            # Store source filename in metadata for citations
+            for doc in loaded:
+                doc.metadata["source"] = pdf_file.name
             print(f"[DEBUG] Loaded {len(loaded)} PDF docs from {pdf_file}")
             documents.extend(loaded)
         except Exception as e:
             print(f"[ERROR] Failed to load PDF {pdf_file}: {e}")
 
-    # TXT files
+    # TXT files — try utf-8 first, fall back to latin-1 to avoid encoding errors
     txt_files = list(data_path.glob('**/*.txt'))
     print(f"[DEBUG] Found {len(txt_files)} TXT files: {[str(f) for f in txt_files]}")
     for txt_file in txt_files:
         print(f"[DEBUG] Loading TXT: {txt_file}")
         try:
-            loader = TextLoader(str(txt_file))
-            loaded = loader.load()
+            try:
+                loader = TextLoader(str(txt_file), encoding="utf-8")
+                loaded = loader.load()
+            except UnicodeDecodeError:
+                loader = TextLoader(str(txt_file), encoding="latin-1")
+                loaded = loader.load()
+            for doc in loaded:
+                doc.metadata["source"] = txt_file.name
             print(f"[DEBUG] Loaded {len(loaded)} TXT docs from {txt_file}")
             documents.extend(loaded)
         except Exception as e:
@@ -49,6 +57,8 @@ def load_all_documents(data_dir: str) -> List[Any]:
         try:
             loader = CSVLoader(str(csv_file))
             loaded = loader.load()
+            for doc in loaded:
+                doc.metadata["source"] = csv_file.name
             print(f"[DEBUG] Loaded {len(loaded)} CSV docs from {csv_file}")
             documents.extend(loaded)
         except Exception as e:
@@ -62,6 +72,8 @@ def load_all_documents(data_dir: str) -> List[Any]:
         try:
             loader = UnstructuredExcelLoader(str(xlsx_file))
             loaded = loader.load()
+            for doc in loaded:
+                doc.metadata["source"] = xlsx_file.name
             print(f"[DEBUG] Loaded {len(loaded)} Excel docs from {xlsx_file}")
             documents.extend(loaded)
         except Exception as e:
@@ -75,19 +87,23 @@ def load_all_documents(data_dir: str) -> List[Any]:
         try:
             loader = Docx2txtLoader(str(docx_file))
             loaded = loader.load()
+            for doc in loaded:
+                doc.metadata["source"] = docx_file.name
             print(f"[DEBUG] Loaded {len(loaded)} Word docs from {docx_file}")
             documents.extend(loaded)
         except Exception as e:
             print(f"[ERROR] Failed to load Word {docx_file}: {e}")
 
-    # JSON files
+    # JSON files — jq_schema="." extracts the entire JSON content as text
     json_files = list(data_path.glob('**/*.json'))
     print(f"[DEBUG] Found {len(json_files)} JSON files: {[str(f) for f in json_files]}")
     for json_file in json_files:
         print(f"[DEBUG] Loading JSON: {json_file}")
         try:
-            loader = JSONLoader(str(json_file))
+            loader = JSONLoader(str(json_file), jq_schema=".", text_content=False)
             loaded = loader.load()
+            for doc in loaded:
+                doc.metadata["source"] = json_file.name
             print(f"[DEBUG] Loaded {len(loaded)} JSON docs from {json_file}")
             documents.extend(loaded)
         except Exception as e:
