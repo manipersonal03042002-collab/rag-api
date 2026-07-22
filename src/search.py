@@ -16,11 +16,7 @@ class RAGSearch:
         faiss_path = os.path.join(persist_dir, "faiss_index.index")
         meta_path = os.path.join(persist_dir, "metadata.pkl")
         if not (os.path.exists(faiss_path) and os.path.exists(meta_path)):
-            print("[WARN] Vector store not found. Building from scratch...")
-            # pyrefly: ignore [missing-import]
-            from src.data_loader import load_all_documents
-            docs = load_all_documents("data")
-            self.vector_store.build_from_documents(docs)
+            print("[INFO] No vector store found. Starting with an empty knowledge base.")
         else:
             print("[INFO] Found existing vector store. Loading...")
             self.vector_store.load()
@@ -73,6 +69,9 @@ class RAGSearch:
         retrieve results for each, then merge and deduplicate by FAISS index.
         This improves recall for ambiguous or broad questions.
         """
+        if self.vector_store.stats()["total_vectors"] == 0:
+            return []
+
         # Generate query variants
         prompt = (
             "Generate 3 different ways to ask the following question. "

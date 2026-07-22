@@ -124,11 +124,6 @@ with st.sidebar:
                         temp_path = os.path.join(temp_dir, f.name)
                         with open(temp_path, "wb") as out_f:
                             out_f.write(f.read())
-                        # Save permanently
-                        perm_path = os.path.join("data", f.name)
-                        with open(perm_path, "wb") as out_f:
-                            f.seek(0)
-                            out_f.write(f.read())
                     
                     new_docs = load_all_documents(temp_dir)
                     if new_docs:
@@ -140,6 +135,20 @@ with st.sidebar:
 
     st.divider()
     
+    indexed_sources = sorted(stats.get("unique_sources", []))
+    if indexed_sources:
+        st.markdown("###  Indexed Documents")
+        sources_to_delete = st.multiselect(
+            "Select documents to delete",
+            indexed_sources,
+            label_visibility="collapsed"
+        )
+        if st.button("🗑️ Delete Selected Documents", use_container_width=True, disabled=not sources_to_delete):
+            rag.vector_store.remove_sources(sources_to_delete)
+            st.session_state.messages = []
+            st.session_state.rag_history = []
+            st.rerun()
+
     # Reset
     if st.button("🗑️ Clear Session Memory", use_container_width=True):
         st.session_state.messages = []
@@ -154,7 +163,10 @@ st.markdown('<p class="subtitle">Secure, citation-backed answers powered by your
 
 # Empty state
 if not st.session_state.messages:
-    st.info("👋 Welcome! Ask a question to start exploring your documents.")
+    if stats.get("total_vectors", 0) == 0:
+        st.info("No documents found. Please upload a document to start.")
+    else:
+        st.info("👋 Welcome! Ask a question to start exploring your documents.")
 
 # Render Chat History
 for msg in st.session_state.messages:
@@ -175,6 +187,15 @@ if prompt := st.chat_input("Query the knowledge base..."):
     with st.chat_message("assistant", avatar="🧠"):
         with st.spinner("Synthesizing answer..."):
             try:
+                if rag.vector_store.stats().get("total_vectors", 0) == 0:
+                    response = "No documents found. Please upload a document before asking a question."
+                    sources = "unknown"
+                    st.markdown(response)
+                    st.session_state.rag_history.append({"role": "user", "content": prompt})
+                    st.session_state.rag_history.append({"role": "assistant", "content": response})
+                    st.session_state.messages.append({"role": "assistant", "content": response, "sources": sources})
+                    st.stop()
+
                 # Core RAG Logic
                 st.session_state.rag_history = rag._summarize_history(st.session_state.rag_history)
                 standalone_query = rag._rewrite_query(prompt, st.session_state.rag_history)
