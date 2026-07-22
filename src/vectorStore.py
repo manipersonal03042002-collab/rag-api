@@ -25,6 +25,9 @@ class FaissVectorStore:
 
     def build_from_documents(self, documents: List[Any]):
         print(f"[INFO] Building vector store from {len(documents)} raw documents...")
+        if not documents:
+            self.clear(save=True)
+            return
         emb_pipe = EmbeddingPipeline(model_name=self.embedding_model, chunk_size=self.chunk_size, chunk_overlap=self.chunk_overlap)
         chunks = emb_pipe.chunk_documents(documents)
         embeddings = emb_pipe.embed_chunks(chunks)
@@ -62,12 +65,18 @@ class FaissVectorStore:
     def load(self):
         faiss_path = os.path.join(self.persist_dir, "faiss_index.index")
         meta_path = os.path.join(self.persist_dir, "metadata.pkl")
+        if not (os.path.exists(faiss_path) and os.path.exists(meta_path)):
+            self.index = None
+            self.metadata = []
+            return
         self.index = faiss.read_index(faiss_path)
         with open(meta_path, "rb") as f:
             self.metadata = pickle.load(f)
         print(f"[INFO] Loaded vector store from {self.persist_dir}")
 
     def search(self, query_embedding: np.ndarray, top_k: int = 5):
+        if self.index is None or self.index.ntotal == 0:
+            return []
         # D  →  distances array, shape (1, top_k) — how far each result is
         # I  →  indices array,   shape (1, top_k) — position in the stored vectors
         # self.index.search() is a FAISS library method — not something you define. It is the core similarity search engine that makes the RAG retrieval work.
@@ -92,9 +101,6 @@ class FaissVectorStore:
         Incrementally add new documents to an existing FAISS index without full rebuild.
         Useful when new files are dropped into the data folder after initial indexing.
         """
-        if self.index is None:
-            print("[WARN] No existing index found. Use build_from_documents() for first-time indexing.")
-            return
         print(f"[INFO] Incrementally adding {len(documents)} new documents to existing index...")
         emb_pipe = EmbeddingPipeline(model_name=self.embedding_model, chunk_size=self.chunk_size, chunk_overlap=self.chunk_overlap)
         chunks = emb_pipe.chunk_documents(documents)
@@ -109,6 +115,41 @@ class FaissVectorStore:
         self.add_embeddings(np.array(embeddings).astype('float32'), metadatas)
         self.save()
         print(f"[INFO] Incremental index update complete. Total vectors: {self.index.ntotal}")
+
+    def remove_sources(self, sources: List[str]):
+        """Remove all chunks belonging to the supplied source filenames."""
+        sources_to_remove = set(sources)
+        if not sources_to_remove:
+            return
+
+        retained = [
+            (index, metadata)
+            for index, metadata in enumerate(self.metadata)
+            if metadata.get("source", "unknown") not in sources_to_remove
+        ]
+
+        if not retained:
+            self.clear(save=True)
+            return
+
+        embeddings = np.vstack([
+            self.index.reconstruct(index)
+            for index, _ in retained
+        ]).astype("float32")
+        self.index = faiss.IndexFlatL2(embeddings.shape[1])
+        self.index.add(embeddings)
+        self.metadata = [metadata for _, metadata in retained]
+        self.save()
+
+    def clear(self, save: bool = True):
+        """Remove all vectors and persisted index files."""
+        self.index = None
+        self.metadata = []
+        if save:
+            for filename in ("faiss_index.index", "metadata.pkl"):
+                path = os.path.join(self.persist_dir, filename)
+                if os.path.exists(path):
+                    os.remove(path)
 
     def stats(self) -> dict:
         """Return index health statistics."""
